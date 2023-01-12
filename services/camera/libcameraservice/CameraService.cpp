@@ -63,6 +63,7 @@
 #include "api1/Camera2Client.h"
 #include "api2/CameraDeviceClient.h"
 #include "utils/CameraTraces.h"
+#include "CameraDeviceFactory.h"    //Add T.tateishi 20221126
 
 namespace {
     const char* kPermissionServiceName = "permission";
@@ -195,10 +196,13 @@ void CameraService::onFirstRef()
         mInitialized = true;
     }
 
+    CameraDeviceFactory::registerService(this); //Add T.tateishi 20221126
+    
     CameraService::pingCameraServiceProxy();
 }
 
-status_t CameraService::enumerateProviders() {
+status_t CameraService::enumerateProviders() {    
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     status_t res;
     Mutex::Autolock l(mServiceLock);
 
@@ -213,8 +217,10 @@ status_t CameraService::enumerateProviders() {
     }
 
     mNumberOfCameras = mCameraProviderManager->getCameraCount();
+    ALOGI("%s: ### DEBUG ### mNumberOfCameras:%d", __FUNCTION__, mNumberOfCameras);
     mNumberOfNormalCameras =
             mCameraProviderManager->getAPI1CompatibleCameraCount();
+    ALOGI("%s: ### DEBUG ### mNumberOfNormalCameras:%d", __FUNCTION__, mNumberOfNormalCameras);
 
     // Setup vendor tags before we call get_camera_info the first time
     // because HAL might need to setup static vendor keys in get_camera_info
@@ -306,7 +312,7 @@ void CameraService::onDeviceStatusChanged(const String8& id,
             id.string(), newHalStatus);
 
     StatusInternal newStatus = mapToInternal(newHalStatus);
-
+#if 0   //T.Tateishi 20221119
     std::shared_ptr<CameraState> state = getCameraState(id);
 
     if (state == nullptr) {
@@ -320,13 +326,42 @@ void CameraService::onDeviceStatusChanged(const String8& id,
     }
 
     StatusInternal oldStatus = state->getStatus();
+#else   //continue even if newly registered (getCameraState return nullptr)
+    StatusInternal oldStatus = StatusInternal::UNKNOWN;
+
+    std::shared_ptr<CameraState> state = getCameraState(id);
+
+    if (state == nullptr) {
+        if (newStatus == StatusInternal::PRESENT) {
+            //ALOGW("%s: Unknown camera ID %s, probably newly registered? but continue anyway... (maybe it is external)",__FUNCTION__, id.string());
+            ALOGW("%s: Unknown camera ID %s, probably newly registered? call enumerateProviders()...",__FUNCTION__, id.string());
+            enumerateProviders();
+            state = getCameraState(id);
+            if (state == nullptr) {
+                ALOGE("%s: Bad camera ID %s", __FUNCTION__, id.string());
+                return;
+            }
+            oldStatus = StatusInternal::NOT_PRESENT;
+            ALOGW("%s: oldStatus:%d",__FUNCTION__, oldStatus);
+        } else {
+            ALOGE("%s: Bad camera ID %s", __FUNCTION__, id.string());
+            return;
+        }
+    }
+    else {
+        oldStatus = state->getStatus();
+        ALOGW("%s: oldStatus:%d",__FUNCTION__, oldStatus);
+    }
+#endif
 
     if (oldStatus == newStatus) {
         ALOGE("%s: State transition to the same status %#x not allowed", __FUNCTION__, newStatus);
         return;
+        //ALOGW("%s: ### DEBUG ### !!! State transition to the same status %#x !!!", __FUNCTION__, newStatus); // Ignore. T.tateishi 20221120
     }
 
-    if (newStatus == StatusInternal::NOT_PRESENT) {
+    //if (newStatus == StatusInternal::NOT_PRESENT) {
+    if (newStatus == StatusInternal::NOT_PRESENT && oldStatus == StatusInternal::PRESENT) { // T.Tateishi 20221128 remove device only when oldStatus was PRESENT
         logDeviceRemoved(id, String8::format("Device status changed from %d to %d", oldStatus,
                 newStatus));
         sp<BasicClient> clientToDisconnect;
@@ -605,6 +640,9 @@ Status CameraService::makeClient(const sp<CameraService>& cameraService,
         int facing, int clientPid, uid_t clientUid, int servicePid, bool legacyMode,
         int halVersion, int deviceVersion, apiLevel effectiveApiLevel,
         /*out*/sp<BasicClient>* client) {
+    ALOGV("%s: ### DEBUG ### cameraId:%s", __FUNCTION__, cameraId.string());
+    ALOGV("%s: ### DEBUG ### halVersion:%d deviceVersion:%d", __FUNCTION__, halVersion, deviceVersion);
+    ALOGV("%s: ### DEBUG ### effectiveApiLevel:%d", __FUNCTION__, (int)effectiveApiLevel);
 
     if (halVersion < 0 || halVersion == deviceVersion) {
         // Default path: HAL version is unspecified by caller, create CameraClient
@@ -1009,6 +1047,7 @@ status_t CameraService::handleEvictionsLocked(const String8& cameraId, int clien
         /*out*/
         sp<BasicClient>* client,
         std::shared_ptr<resource_policy::ClientDescriptor<String8, sp<BasicClient>>>* partial) {
+    ALOGV("%s: ### DEBUG ###", __FUNCTION__);
     ATRACE_CALL();
     status_t ret = NO_ERROR;
     std::vector<DescriptorPtr> evictedClients;
@@ -1114,6 +1153,7 @@ status_t CameraService::handleEvictionsLocked(const String8& cameraId, int clien
             Mutex::Autolock l(mLogLock);
             mEventLog.add(msg);
 
+            ALOGV("%s: ### DEBUG ### return -EBUSY msg:%s", __FUNCTION__, msg.string());
             return -EBUSY;
         }
 
@@ -1158,11 +1198,14 @@ status_t CameraService::handleEvictionsLocked(const String8& cameraId, int clien
     int64_t token = IPCThreadState::self()->clearCallingIdentity();
 
     // Destroy evicted clients
+    ALOGV("%s: ### DEBUG ### calling Destroy evicted clients...", __FUNCTION__);
     for (auto& i : evictedClients) {
         // Disconnect is blocking, and should only have returned when HAL has cleaned up
+        ALOGV("%s: ### DEBUG ### calling evicted client disconnect...", __FUNCTION__);
         i->getValue()->disconnect(); // Clients will remove themselves from the active client list
     }
 
+    ALOGV("%s: ### DEBUG ### calling restoreCallingIdentity...", __FUNCTION__);
     IPCThreadState::self()->restoreCallingIdentity(token);
 
     for (const auto& i : evictedClients) {
@@ -1183,17 +1226,21 @@ status_t CameraService::handleEvictionsLocked(const String8& cameraId, int clien
         }
     }
 
+    ALOGV("%s: ### DEBUG ### calling evictedClients.clear()...", __FUNCTION__);
     evictedClients.clear();
 
     // Once clients have been disconnected, relock
     mServiceLock.lock();
 
     // Check again if the device was unplugged or something while we weren't holding mServiceLock
+    ALOGV("%s: ### DEBUG ### calling checkIfDeviceIsUsable...", __FUNCTION__);
     if ((ret = checkIfDeviceIsUsable(cameraId)) != NO_ERROR) {
+        ALOGV("%s: ### DEBUG ### checkIfDeviceIsUsable return error", __FUNCTION__);
         return ret;
     }
 
     *partial = clientDescriptor;
+    ALOGV("%s: ### DEBUG ### return NO_ERROR", __FUNCTION__);
     return NO_ERROR;
 }
 
@@ -1205,23 +1252,27 @@ Status CameraService::connect(
         int clientPid,
         /*out*/
         sp<ICamera>* device) {
+    ALOGV("%s: ### DEBUG ###", __FUNCTION__);
 
     ATRACE_CALL();
     Status ret = Status::ok();
     String8 id = String8::format("%d", cameraId);
     sp<Client> client = nullptr;
+    ALOGV("%s: ### DEBUG ### calling connectHelper...", __FUNCTION__);
     ret = connectHelper<ICameraClient,Client>(cameraClient, id,
             CAMERA_HAL_API_VERSION_UNSPECIFIED, clientPackageName, clientUid, clientPid, API_1,
             /*legacyMode*/ false, /*shimUpdateOnly*/ false,
             /*out*/client);
 
     if(!ret.isOk()) {
+        ALOGV("%s: ### DEBUG ### connectHelper ret is not Ok", __FUNCTION__);
         logRejected(id, getCallingPid(), String8(clientPackageName),
                 ret.toString8());
         return ret;
     }
 
     *device = client;
+    ALOGV("%s: ### DEBUG ### exit Ok", __FUNCTION__);
     return ret;
 }
 
@@ -1233,23 +1284,27 @@ Status CameraService::connectLegacy(
         /*out*/
         sp<ICamera>* device) {
 
+    ALOGV("%s: ### DEBUG ###", __FUNCTION__);
     ATRACE_CALL();
     String8 id = String8::format("%d", cameraId);
 
     Status ret = Status::ok();
     sp<Client> client = nullptr;
+    ALOGV("%s: ### DEBUG ### calling connectHelper...", __FUNCTION__);
     ret = connectHelper<ICameraClient,Client>(cameraClient, id, halVersion,
             clientPackageName, clientUid, USE_CALLING_PID, API_1,
             /*legacyMode*/ true, /*shimUpdateOnly*/ false,
             /*out*/client);
 
     if(!ret.isOk()) {
+        ALOGV("%s: ### DEBUG ### connectHelper ret is not Ok", __FUNCTION__);
         logRejected(id, getCallingPid(), String8(clientPackageName),
                 ret.toString8());
         return ret;
     }
 
     *device = client;
+    ALOGV("%s: ### DEBUG ### exit Ok", __FUNCTION__);
     return ret;
 }
 
@@ -1260,11 +1315,12 @@ Status CameraService::connectDevice(
         int clientUid,
         /*out*/
         sp<hardware::camera2::ICameraDeviceUser>* device) {
-
+    ALOGV("%s: ### DEBUG ### ", __FUNCTION__);
     ATRACE_CALL();
     Status ret = Status::ok();
     String8 id = String8(cameraId);
     sp<CameraDeviceClient> client = nullptr;
+    ALOGV("%s: ### DEBUG ### calling connectHelper...", __FUNCTION__);
     ret = connectHelper<hardware::camera2::ICameraDeviceCallbacks,CameraDeviceClient>(cameraCb, id,
             CAMERA_HAL_API_VERSION_UNSPECIFIED, clientPackageName,
             clientUid, USE_CALLING_PID, API_2,
@@ -1272,12 +1328,14 @@ Status CameraService::connectDevice(
             /*out*/client);
 
     if(!ret.isOk()) {
+        ALOGV("%s: ### DEBUG ### connectHelper ret is not Ok", __FUNCTION__);
         logRejected(id, getCallingPid(), String8(clientPackageName),
                 ret.toString8());
         return ret;
     }
 
     *device = client;
+    ALOGV("%s: ### DEBUG ### exit Ok", __FUNCTION__);
     return ret;
 }
 
@@ -1286,9 +1344,13 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
         int halVersion, const String16& clientPackageName, int clientUid, int clientPid,
         apiLevel effectiveApiLevel, bool legacyMode, bool shimUpdateOnly,
         /*out*/sp<CLIENT>& device) {
+    String8 clientName8(clientPackageName);
+    ALOGV("%s: ### DEBUG ### cameraId:%s halVersion:%d clientName8:%s clientUid:%d clientPid:%d"
+    " effectiveApiLevel:%d legacyMode:%d shimUpdateOnly:%d", 
+        __FUNCTION__, cameraId.string(), halVersion, clientName8.string(), clientUid, 
+        clientPid, (int)effectiveApiLevel, legacyMode, shimUpdateOnly);
     binder::Status ret = binder::Status::ok();
 
-    String8 clientName8(clientPackageName);
 
     int originalClientPid = 0;
 
@@ -1312,17 +1374,24 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
         }
 
         // Enforce client permissions and do basic sanity checks
+        ALOGV("%s: ### DEBUG ### calling validateConnectLocked...", __FUNCTION__);
         if(!(ret = validateConnectLocked(cameraId, clientName8,
                 /*inout*/clientUid, /*inout*/clientPid, /*out*/originalClientPid)).isOk()) {
+            ALOGV("%s: ### DEBUG ### validateConnectLocked ret is not Ok", __FUNCTION__);
             return ret;
         }
 
         // Check the shim parameters after acquiring lock, if they have already been updated and
         // we were doing a shim update, return immediately
         if (shimUpdateOnly) {
+            ALOGV("%s: ### DEBUG ### calling getCameraState...", __FUNCTION__);
             auto cameraState = getCameraState(cameraId);
             if (cameraState != nullptr) {
-                if (!cameraState->getShimParams().isEmpty()) return ret;
+                ALOGV("%s: ### DEBUG ### getCameraState return cameraState is not nullptr", __FUNCTION__);
+                if (!cameraState->getShimParams().isEmpty()){
+                    ALOGV("%s: ### DEBUG ### cameraState->getShimParams() is not empty", __FUNCTION__);
+                    return ret;
+                } 
             }
         }
 
@@ -1330,36 +1399,46 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
 
         sp<BasicClient> clientTmp = nullptr;
         std::shared_ptr<resource_policy::ClientDescriptor<String8, sp<BasicClient>>> partial;
+        ALOGV("%s: ### DEBUG ### calling handleEvictionsLocked...", __FUNCTION__);
         if ((err = handleEvictionsLocked(cameraId, originalClientPid, effectiveApiLevel,
                 IInterface::asBinder(cameraCb), clientName8, /*out*/&clientTmp,
                 /*out*/&partial)) != NO_ERROR) {
+            ALOGV("%s: ### DEBUG ### getCameraState return error", __FUNCTION__);
             switch (err) {
                 case -ENODEV:
+                    ALOGV("%s: ### DEBUG ### ERROR_DISCONNECTED", __FUNCTION__);
                     return STATUS_ERROR_FMT(ERROR_DISCONNECTED,
                             "No camera device with ID \"%s\" currently available",
                             cameraId.string());
                 case -EBUSY:
+                    ALOGV("%s: ### DEBUG ### ERROR_CAMERA_IN_USE", __FUNCTION__);
                     return STATUS_ERROR_FMT(ERROR_CAMERA_IN_USE,
                             "Higher-priority client using camera, ID \"%s\" currently unavailable",
                             cameraId.string());
                 default:
+                    ALOGV("%s: ### DEBUG ### ERROR_INVALID_OPERATION", __FUNCTION__);
                     return STATUS_ERROR_FMT(ERROR_INVALID_OPERATION,
                             "Unexpected error %s (%d) opening camera \"%s\"",
                             strerror(-err), err, cameraId.string());
             }
         }
+        ALOGV("%s: ### DEBUG ### getCameraState return NO_ERROR", __FUNCTION__);
 
         if (clientTmp.get() != nullptr) {
+            ALOGV("%s: ### DEBUG ### clientTmp.get() is not nullptr", __FUNCTION__);
             // Handle special case for API1 MediaRecorder where the existing client is returned
             device = static_cast<CLIENT*>(clientTmp.get());
             return ret;
         }
 
         // give flashlight a chance to close devices if necessary.
+        ALOGV("%s: ### DEBUG ### calling mFlashlight->prepareDeviceOpen...", __FUNCTION__);
         mFlashlight->prepareDeviceOpen(cameraId);
 
         int facing = -1;
+        ALOGV("%s: ### DEBUG ### calling getDeviceVersion...", __FUNCTION__);
         int deviceVersion = getDeviceVersion(cameraId, /*out*/&facing);
+        ALOGV("%s: ### DEBUG ### deviceVersion:%d (%04x)", __FUNCTION__, deviceVersion, deviceVersion);
         if (facing == -1) {
             ALOGE("%s: Unable to get camera device \"%s\"  facing", __FUNCTION__, cameraId.string());
             return STATUS_ERROR_FMT(ERROR_INVALID_OPERATION,
@@ -1367,9 +1446,11 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
         }
 
         sp<BasicClient> tmp = nullptr;
+        ALOGV("%s: ### DEBUG ### calling makeClient...", __FUNCTION__);
         if(!(ret = makeClient(this, cameraCb, clientPackageName, cameraId, facing, clientPid,
                 clientUid, getpid(), legacyMode, halVersion, deviceVersion, effectiveApiLevel,
                 /*out*/&tmp)).isOk()) {
+            ALOGE("%s: makeClient failed", __FUNCTION__);
             return ret;
         }
         client = static_cast<CLIENT*>(tmp.get());
@@ -1377,6 +1458,7 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
         LOG_ALWAYS_FATAL_IF(client.get() == nullptr, "%s: CameraService in invalid state",
                 __FUNCTION__);
 
+        ALOGV("%s: ### DEBUG ### calling client->initialize...", __FUNCTION__);
         err = client->initialize(mCameraProviderManager);
         if (err != OK) {
             ALOGE("%s: Could not initialize client from HAL.", __FUNCTION__);
@@ -1405,16 +1487,22 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
                             strerror(-err), err);
             }
         }
+        ALOGV("%s: ### DEBUG ### client->initialize success", __FUNCTION__);
 
         // Update shim paremeters for legacy clients
         if (effectiveApiLevel == API_1) {
+            ALOGV("%s: ### DEBUG ### Update shim paremeters for legacy clients", __FUNCTION__);
             // Assume we have always received a Client subclass for API1
             sp<Client> shimClient = reinterpret_cast<Client*>(client.get());
+            ALOGV("%s: ### DEBUG ### calling shimClient->getParameters...", __FUNCTION__);
             String8 rawParams = shimClient->getParameters();
+            ALOGV("%s: ### DEBUG ### calling rawParams:%s", __FUNCTION__, rawParams.string());
             CameraParameters params(rawParams);
 
+            ALOGV("%s: ### DEBUG ### calling getCameraState...", __FUNCTION__);
             auto cameraState = getCameraState(cameraId);
             if (cameraState != nullptr) {
+                ALOGV("%s: ### DEBUG ### calling cameraState->setShimParams...", __FUNCTION__);
                 cameraState->setShimParams(params);
             } else {
                 ALOGE("%s: Cannot update shim parameters for camera %s, no such device exists.",
@@ -1424,11 +1512,13 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
 
         if (shimUpdateOnly) {
             // If only updating legacy shim parameters, immediately disconnect client
+            ALOGV("%s: ### DEBUG ### If only updating legacy shim parameters, immediately disconnect client", __FUNCTION__);
             mServiceLock.unlock();
             client->disconnect();
             mServiceLock.lock();
         } else {
             // Otherwise, add client to active clients list
+            ALOGV("%s: ### DEBUG ### add client to active clients list", __FUNCTION__);
             finishConnectLocked(client, partial);
         }
     } // lock is destroyed, allow further connect calls
@@ -1436,6 +1526,7 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
     // Important: release the mutex here so the client can call back into the service from its
     // destructor (can be at the end of the call)
     device = client;
+    ALOGV("%s: ### DEBUG ### exit Ok", __FUNCTION__);
     return ret;
 }
 

@@ -33,6 +33,8 @@
 
 #include "device3/Camera3Device.h"
 
+#include "CameraDeviceFactory.h"    //Add T.Tateishi 20221126
+
 namespace android {
 using namespace camera2;
 
@@ -58,19 +60,40 @@ Camera2ClientBase<TClientBase>::Camera2ClientBase(
         mDeviceVersion(cameraService->getDeviceVersion(TClientBase::mCameraIdStr)),
         mDeviceActive(false)
 {
-    ALOGI("Camera %s: Opened. Client: %s (PID %d, UID %d)", cameraId.string(),
-            String8(clientPackageName).string(), clientPid, clientUid);
+#if 0
+    ALOGI("%s: ### DEBUG ### Camera2ClientBase. cameraId:%s clientPackageName: %s (PID %d, UID %d)", 
+        __FUNCTION__, cameraId.string(), String8(clientPackageName).string(), clientPid, clientUid);
 
     mInitialClientPid = clientPid;
-    mDevice = new Camera3Device(cameraId);
+    //int nCameraId = atoi(cameraId.c_str());
+    //ALOGI("%s: nCameraId:%d", __FUNCTION__, nCameraId);
+    //mDevice = new Camera3Device(cameraId);
+    ALOGI("%s: ### DEBUG ### calling CameraDeviceFactory::createDevice...", __FUNCTION__);
+    mDevice = CameraDeviceFactory::createDevice(cameraId);     //Add T.Tateishi 20221126
+    ALOGI("%s: ### DEBUG ### CameraDeviceFactory::createDevice return.", __FUNCTION__);
+    if (!mDevice.get()) {
+        ALOGE("%s-mDevice.get() failed.", __FUNCTION__);
+    }
     LOG_ALWAYS_FATAL_IF(mDevice == 0, "Device should never be NULL here.");
+    ALOGI("Camera %s: Opened. Client: %s (PID %d, UID %d)", cameraId.string(),
+            String8(clientPackageName).string(), clientPid, clientUid);
+#else
+    ALOGI("Camera %s: Opened. Client: %s (PID %d, UID %d)", cameraId.string(),
+            String8(clientPackageName).string(), clientPid, clientUid);
+    mInitialClientPid = clientPid;
+    //mOverrideForPerfClass = overrideForPerfClass;
+    //mLegacyClient = legacyClient;
+#endif            
 }
 
 template <typename TClientBase>
 status_t Camera2ClientBase<TClientBase>::checkPid(const char* checkLocation)
         const {
+    ALOGV("%s: ### DEBUG ### checkLocation:%s", __FUNCTION__, checkLocation);
 
     int callingPid = getCallingPid();
+    ALOGV("%s: ### DEBUG ### TClientBase::mClientPid:%d", __FUNCTION__, TClientBase::mClientPid);
+    ALOGV("%s: ### DEBUG ### callingPid:%d", __FUNCTION__, callingPid);
     if (callingPid == TClientBase::mClientPid) return NO_ERROR;
 
     ALOGE("%s: attempt to use a locked camera from a different process"
@@ -82,17 +105,24 @@ template <typename TClientBase>
 status_t Camera2ClientBase<TClientBase>::initialize(sp<CameraProviderManager> manager) {
     return initializeImpl(manager);
 }
-
+#if 0
 template <typename TClientBase>
 template <typename TProviderPtr>
 status_t Camera2ClientBase<TClientBase>::initializeImpl(TProviderPtr providerPtr) {
     ATRACE_CALL();
+    ALOGV("%s: ### DEBUG ###", __FUNCTION__);
+
+    if(TClientBase::mCameraIdStr == nullptr){
+        ALOGV("%s: ### DEBUG ### TClientBase::mCameraIdStr is nullptr", __FUNCTION__);
+    }
     ALOGV("%s: Initializing client for camera %s", __FUNCTION__,
           TClientBase::mCameraIdStr.string());
     status_t res;
 
     // Verify ops permissions
+    ALOGV("%s: ### DEBUG ### calling TClientBase::startCameraOps()...", __FUNCTION__);
     res = TClientBase::startCameraOps();
+    ALOGV("%s: ### DEBUG ### TClientBase::startCameraOps() return res:%d", __FUNCTION__, res);
     if (res != OK) {
         return res;
     }
@@ -113,8 +143,73 @@ status_t Camera2ClientBase<TClientBase>::initializeImpl(TProviderPtr providerPtr
     wp<CameraDeviceBase::NotificationListener> weakThis(this);
     res = mDevice->setNotifyCallback(weakThis);
 
+    ALOGV("%s: ### DEBUG ### return OK", __FUNCTION__);
     return OK;
 }
+#else
+template <typename TClientBase>
+template <typename TProviderPtr>
+status_t Camera2ClientBase<TClientBase>::initializeImpl(TProviderPtr providerPtr /*,const String8& monitorTags*/) {
+    ATRACE_CALL();
+    ALOGV("%s: Initializing client for camera %s", __FUNCTION__,
+          TClientBase::mCameraIdStr.string());
+    status_t res;
+    // Verify ops permissions
+    res = TClientBase::startCameraOps();
+    if (res != OK) {
+        return res;
+    }
+#if 0    
+    IPCTransport providerTransport = IPCTransport::INVALID;
+    res = providerPtr->getCameraIdIPCTransport(TClientBase::mCameraIdStr.string(),
+            &providerTransport);
+    if (res != OK) {
+        return res;
+    }
+    switch (providerTransport) {
+        case IPCTransport::HIDL:
+            mDevice =
+                    new HidlCamera3Device(TClientBase::mCameraIdStr, mOverrideForPerfClass,
+                            mLegacyClient);
+            break;
+        case IPCTransport::AIDL:
+            mDevice =
+                    new AidlCamera3Device(TClientBase::mCameraIdStr, mOverrideForPerfClass,
+                            mLegacyClient);
+             break;
+        default:
+            ALOGE("%s Invalid transport for camera id %s", __FUNCTION__,
+                    TClientBase::mCameraIdStr.string());
+            return NO_INIT;
+    }
+#else
+    ALOGI("%s: ### DEBUG ### calling CameraDeviceFactory::createDevice...", __FUNCTION__);
+    mDevice = CameraDeviceFactory::createDevice(TClientBase::mCameraIdStr);     //Add T.Tateishi 20221126
+    if(mDevice == nullptr){
+        ALOGI("%s: ### DEBUG ### CameraDeviceFactory::createDevice return nullptr.", __FUNCTION__);
+        return NO_INIT;
+    }
+#endif    
+    if (mDevice == NULL) {
+        ALOGI("%s: ### DEBUG ### CameraDeviceFactory::createDevice return NULL.", __FUNCTION__);
+        ALOGE("%s: Camera %s: No device connected",
+                __FUNCTION__, TClientBase::mCameraIdStr.string());
+        return NO_INIT;
+    }
+    ALOGI("%s: ### DEBUG ### calling mDevice->initialize...", __FUNCTION__);
+    //res = mDevice->initialize(providerPtr, monitorTags);
+    res = mDevice->initialize(providerPtr);
+    if (res != OK) {
+        ALOGE("%s: Camera %s: unable to initialize device: %s (%d)",
+                __FUNCTION__, TClientBase::mCameraIdStr.string(), strerror(-res), res);
+        return res;
+    }
+    wp<NotificationListener> weakThis(this);
+    ALOGI("%s: ### DEBUG ### calling mDevice->setNotifyCallback...", __FUNCTION__);
+    res = mDevice->setNotifyCallback(weakThis);
+    return OK;
+}
+#endif
 
 template <typename TClientBase>
 Camera2ClientBase<TClientBase>::~Camera2ClientBase() {
@@ -156,7 +251,8 @@ status_t Camera2ClientBase<TClientBase>::dumpDevice(
     result = "  Device dump:\n";
     write(fd, result.string(), result.size());
 
-    if (!mDevice.get()) {
+    //if (!mDevice.get()) { 
+    if (mDevice.get() == nullptr) { //T.Tateishi 20221127
         result = "  *** Device is detached\n";
         write(fd, result.string(), result.size());
         return NO_ERROR;

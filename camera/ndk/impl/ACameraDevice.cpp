@@ -447,6 +447,7 @@ CameraDevice::flushLocked(ACameraCaptureSession* session) {
 
 camera_status_t
 CameraDevice::waitUntilIdleLocked() {
+    ALOGV("%s: ### DEBUG ###", __FUNCTION__);
     camera_status_t ret = checkCameraClosedOrErrorLocked();
     if (ret != ACAMERA_OK) {
         ALOGE("Wait until camera %s idle failed! ret %d", getId(), ret);
@@ -458,6 +459,7 @@ CameraDevice::waitUntilIdleLocked() {
         return ACAMERA_ERROR_INVALID_OPERATION;
     }
 
+    ALOGV("%s: ### DEBUG ### calling mRemote->waitUntilIdle...", __FUNCTION__);
     binder::Status remoteRet = mRemote->waitUntilIdle();
     if (!remoteRet.isOk()) {
         ALOGE("Camera device %s waitUntilIdle failed: %s", getId(), remoteRet.toString8().string());

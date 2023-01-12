@@ -77,16 +77,17 @@ Camera3Device::Camera3Device(const String8 &id):
         mListener(NULL),
         mVendorTagId(CAMERA_METADATA_INVALID_VENDOR_ID)
 {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     ATRACE_CALL();
     camera3_callback_ops::notify = &sNotify;
     camera3_callback_ops::process_capture_result = &sProcessCaptureResult;
-    ALOGV("%s: Created device for camera %s", __FUNCTION__, mId.string());
+    ALOGI("%s: Created device for camera %s", __FUNCTION__, mId.string());
 }
 
 Camera3Device::~Camera3Device()
 {
     ATRACE_CALL();
-    ALOGV("%s: Tearing down for camera id %s", __FUNCTION__, mId.string());
+    ALOGI("%s: Tearing down for camera id %s", __FUNCTION__, mId.string());
     disconnect();
 }
 
@@ -99,24 +100,31 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager) {
     Mutex::Autolock il(mInterfaceLock);
     Mutex::Autolock l(mLock);
 
-    ALOGV("%s: Initializing HIDL device for camera %s", __FUNCTION__, mId.string());
+    ALOGI("%s: Initializing HIDL device for camera %s", __FUNCTION__, mId.string());
     if (mStatus != STATUS_UNINITIALIZED) {
         CLOGE("Already initialized!");
         return INVALID_OPERATION;
     }
-    if (manager == nullptr) return INVALID_OPERATION;
+    if (manager == nullptr) {
+        ALOGI("%s: ### DEBUG ### manager is nullptr", __FUNCTION__);
+        return INVALID_OPERATION;
+    }
 
     sp<ICameraDeviceSession> session;
     ATRACE_BEGIN("CameraHal::openSession");
+    ALOGI("%s: ### DEBUG ### calling manager->openSession...", __FUNCTION__);
     status_t res = manager->openSession(mId.string(), this,
             /*out*/ &session);
     ATRACE_END();
+    ALOGI("%s: ### DEBUG ### manager->openSession return res:%d", __FUNCTION__, res);
     if (res != OK) {
         SET_ERR_L("Could not open camera session: %s (%d)", strerror(-res), res);
         return res;
     }
 
+    ALOGI("%s: ### DEBUG ### calling manager->getCameraCharacteristics...", __FUNCTION__);
     res = manager->getCameraCharacteristics(mId.string(), &mDeviceInfo);
+    ALOGI("%s: ### DEBUG ### manager->getCameraCharacteristics return res:%d", __FUNCTION__, res);
     if (res != OK) {
         SET_ERR_L("Could not retrive camera characteristics: %s (%d)", strerror(-res), res);
         session->close();
@@ -124,6 +132,7 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager) {
     }
 
     std::shared_ptr<RequestMetadataQueue> queue;
+    ALOGI("%s: ### DEBUG ### calling manager->getCaptureRequestMetadataQueue...", __FUNCTION__);
     auto requestQueueRet = session->getCaptureRequestMetadataQueue(
         [&queue](const auto& descriptor) {
             queue = std::make_shared<RequestMetadataQueue>(descriptor);
@@ -133,6 +142,7 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager) {
                 // don't use the queue onwards.
             }
         });
+    ALOGI("%s: ### DEBUG ### manager->getCameraCharacteristics return.", __FUNCTION__);
     if (!requestQueueRet.isOk()) {
         ALOGE("Transaction error when getting request metadata fmq: %s, not use it",
                 requestQueueRet.description().c_str());
@@ -140,6 +150,7 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager) {
     }
 
     std::unique_ptr<ResultMetadataQueue>& resQueue = mResultMetadataQueue;
+    ALOGI("%s: ### DEBUG ### calling manager->getCaptureResultMetadataQueue...", __FUNCTION__);
     auto resultQueueRet = session->getCaptureResultMetadataQueue(
         [&resQueue](const auto& descriptor) {
             resQueue = std::make_unique<ResultMetadataQueue>(descriptor);
@@ -149,6 +160,7 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager) {
                 // Don't use the resQueue onwards.
             }
         });
+    ALOGI("%s: ### DEBUG ### manager->getCaptureResultMetadataQueue return.", __FUNCTION__);
     if (!resultQueueRet.isOk()) {
         ALOGE("Transaction error when getting result metadata queue from camera session: %s",
                 resultQueueRet.description().c_str());
@@ -168,7 +180,10 @@ status_t Camera3Device::initialize(sp<CameraProviderManager> manager) {
     std::string providerType;
     mVendorTagId = manager->getProviderTagIdLocked(mId.string());
 
-    return initializeCommonLocked();
+    ALOGI("%s: ### DEBUG ### calling initializeCommonLocked...", __FUNCTION__);
+    status_t ret = initializeCommonLocked();
+    ALOGI("%s: ### DEBUG ### initializeCommonLocked return ret:%d", __FUNCTION__, ret);
+    return ret;
 }
 
 status_t Camera3Device::initializeCommonLocked() {

@@ -60,6 +60,7 @@ CameraDeviceClientBase::CameraDeviceClientBase(
             clientUid,
             servicePid),
     mRemoteCallback(remoteCallback) {
+    ALOGI("%s: ### DEBUG ### CameraDeviceClientBase", __FUNCTION__);
 }
 
 // Interface used by CameraService
@@ -78,8 +79,14 @@ CameraDeviceClient::CameraDeviceClient(const sp<CameraService>& cameraService,
     mStreamingRequestId(REQUEST_ID_NONE),
     mRequestIdCounter(0) {
 
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     ATRACE_CALL();
-    ALOGI("CameraDeviceClient %s: Opened", cameraId.string());
+    if (!mDevice.get()) {
+        ALOGE("%s-mDevice.get() failed.", __FUNCTION__);
+    } else {
+        ALOGI("Client: %s Opened", cameraId.string());
+        ALOGI("%s: ### DEBUG ### mDevice: %s", __FUNCTION__, mDevice->getId().c_str());
+    }
 }
 
 status_t CameraDeviceClient::initialize(sp<CameraProviderManager> manager) {
@@ -88,10 +95,12 @@ status_t CameraDeviceClient::initialize(sp<CameraProviderManager> manager) {
 
 template<typename TProviderPtr>
 status_t CameraDeviceClient::initializeImpl(TProviderPtr providerPtr) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     ATRACE_CALL();
     status_t res;
 
     res = Camera2ClientBase::initialize(providerPtr);
+    ALOGI("%s: ### DEBUG ### Camera2ClientBase::initialize return: %d", __FUNCTION__, res);
     if (res != OK) {
         return res;
     }
@@ -99,6 +108,7 @@ status_t CameraDeviceClient::initializeImpl(TProviderPtr providerPtr) {
     String8 threadName;
     mFrameProcessor = new FrameProcessorBase(mDevice);
     threadName = String8::format("CDU-%s-FrameProc", mCameraIdStr.string());
+    ALOGI("%s: ### DEBUG ### threadName: %s", __FUNCTION__, threadName.c_str());
     mFrameProcessor->run(threadName.string());
 
     mFrameProcessor->registerListener(FRAME_PROCESSOR_LISTENER_MIN_ID,
@@ -127,7 +137,7 @@ binder::Status CameraDeviceClient::submitRequestList(
         /*out*/
         hardware::camera2::utils::SubmitInfo *submitInfo) {
     ATRACE_CALL();
-    ALOGV("%s-start of function. Request list size %zu", __FUNCTION__, requests.size());
+    ALOGI("%s-start of function. Request list size %zu", __FUNCTION__, requests.size());
 
     binder::Status res = binder::Status::ok();
     status_t err;
@@ -138,6 +148,7 @@ binder::Status CameraDeviceClient::submitRequestList(
     Mutex::Autolock icl(mBinderSerializationLock);
 
     if (!mDevice.get()) {
+        ALOGE("%s-mDevice.get() failed.", __FUNCTION__);
         return STATUS_ERROR(CameraService::ERROR_DISCONNECTED, "Camera device no longer alive");
     }
 
@@ -285,6 +296,7 @@ binder::Status CameraDeviceClient::cancelRequest(
     Mutex::Autolock icl(mBinderSerializationLock);
 
     if (!mDevice.get()) {
+        ALOGE("%s-mDevice.get() failed.", __FUNCTION__);
         return STATUS_ERROR(CameraService::ERROR_DISCONNECTED, "Camera device no longer alive");
     }
 
@@ -330,6 +342,7 @@ binder::Status CameraDeviceClient::endConfigure(int operatingMode) {
     Mutex::Autolock icl(mBinderSerializationLock);
 
     if (!mDevice.get()) {
+        ALOGE("%s-mDevice.get() failed.", __FUNCTION__);
         return STATUS_ERROR(CameraService::ERROR_DISCONNECTED, "Camera device no longer alive");
     }
 
@@ -390,6 +403,7 @@ binder::Status CameraDeviceClient::deleteStream(int streamId) {
     Mutex::Autolock icl(mBinderSerializationLock);
 
     if (!mDevice.get()) {
+        ALOGE("%s-mDevice.get() failed.", __FUNCTION__);
         return STATUS_ERROR(CameraService::ERROR_DISCONNECTED, "Camera device no longer alive");
     }
 
@@ -452,10 +466,14 @@ binder::Status CameraDeviceClient::createStream(
         const hardware::camera2::params::OutputConfiguration &outputConfiguration,
         /*out*/
         int32_t* newStreamId) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     ATRACE_CALL();
 
     binder::Status res;
-    if (!(res = checkPidStatus(__FUNCTION__)).isOk()) return res;
+    if (!(res = checkPidStatus(__FUNCTION__)).isOk()){
+        ALOGI("%s: ### DEBUG ### checkPidStatus isOk() false", __FUNCTION__);
+        return res;
+    } 
 
     Mutex::Autolock icl(mBinderSerializationLock);
 
@@ -465,6 +483,7 @@ binder::Status CameraDeviceClient::createStream(
     bool deferredConsumer = outputConfiguration.isDeferred();
     bool isShared = outputConfiguration.isShared();
 
+    ALOGI("%s: ### DEBUG ### numBufferProducers: %u", __FUNCTION__, (uint32_t)numBufferProducers);
     if (numBufferProducers > MAX_SURFACES_PER_STREAM) {
         ALOGE("%s: GraphicBufferProducer count %zu for stream exceeds limit of %d",
               __FUNCTION__, bufferProducers.size(), MAX_SURFACES_PER_STREAM);
@@ -482,6 +501,7 @@ binder::Status CameraDeviceClient::createStream(
     }
 
     if (!mDevice.get()) {
+        ALOGE("%s-mDevice.get() failed.", __FUNCTION__);
         return STATUS_ERROR(CameraService::ERROR_DISCONNECTED, "Camera device no longer alive");
     }
 
@@ -491,6 +511,7 @@ binder::Status CameraDeviceClient::createStream(
 
     // Create stream for deferred surface case.
     if (deferredConsumerOnly) {
+        ALOGI("%s: ### DEBUG ### calling createDeferredSurfaceStreamLocked...", __FUNCTION__);
         return createDeferredSurfaceStreamLocked(outputConfiguration, isShared, newStreamId);
     }
 
@@ -500,6 +521,7 @@ binder::Status CameraDeviceClient::createStream(
         // Don't create multiple streams for the same target surface
         sp<IBinder> binder = IInterface::asBinder(bufferProducer);
         ssize_t index = mStreamMap.indexOfKey(binder);
+        ALOGI("%s: ### DEBUG ### index: %d", __FUNCTION__, (int)index);
         if (index != NAME_NOT_FOUND) {
             String8 msg = String8::format("Camera %s: Surface already has a stream created for it "
                     "(ID %zd)", mCameraIdStr.string(), index);
@@ -510,8 +532,10 @@ binder::Status CameraDeviceClient::createStream(
         sp<Surface> surface;
         res = createSurfaceFromGbp(streamInfo, isStreamInfoValid, surface, bufferProducer);
 
-        if (!res.isOk())
+        if (!res.isOk()){
+            ALOGI("%s: ### DEBUG ### createSurfaceFromGbp return: %s", __FUNCTION__, res.toString8().c_str());
             return res;
+        }
 
         if (!isStreamInfoValid) {
             // Streaming sharing is only supported for IMPLEMENTATION_DEFINED
@@ -561,6 +585,7 @@ binder::Status CameraDeviceClient::createStream(
         *newStreamId = streamId;
     }
 
+    ALOGI("%s: ### DEBUG ### return: %s", __FUNCTION__, res.toString8().c_str());
     return res;
 }
 
@@ -576,6 +601,7 @@ binder::Status CameraDeviceClient::createDeferredSurfaceStreamLocked(
     binder::Status res;
 
     if (!mDevice.get()) {
+        ALOGE("%s-mDevice.get() failed.", __FUNCTION__);
         return STATUS_ERROR(CameraService::ERROR_DISCONNECTED, "Camera device no longer alive");
     }
 
@@ -628,6 +654,7 @@ binder::Status CameraDeviceClient::setStreamTransformLocked(int streamId) {
     binder::Status res;
 
     if (!mDevice.get()) {
+        ALOGE("%s-mDevice.get() failed.", __FUNCTION__);
         return STATUS_ERROR(CameraService::ERROR_DISCONNECTED, "Camera device no longer alive");
     }
 
@@ -663,6 +690,7 @@ binder::Status CameraDeviceClient::createInputStream(
     Mutex::Autolock icl(mBinderSerializationLock);
 
     if (!mDevice.get()) {
+        ALOGE("%s-mDevice.get() failed.", __FUNCTION__);
         return STATUS_ERROR(CameraService::ERROR_DISCONNECTED, "Camera device no longer alive");
     }
 
@@ -705,7 +733,8 @@ binder::Status CameraDeviceClient::getInputSurface(/*out*/ view::Surface *inputS
     }
 
     Mutex::Autolock icl(mBinderSerializationLock);
-    if (!mDevice.get()) {
+    //if (!mDevice.get()) {
+    if (mDevice.get() == nullptr) { //T.Tateishi 20221127
         return STATUS_ERROR(CameraService::ERROR_DISCONNECTED, "Camera device no longer alive");
     }
     sp<IGraphicBufferProducer> producer;
@@ -739,10 +768,10 @@ bool CameraDeviceClient::isPublicFormat(int32_t format)
         case HAL_PIXEL_FORMAT_BLOB:
         case HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED:
         case HAL_PIXEL_FORMAT_YCbCr_420_888:
-        case HAL_PIXEL_FORMAT_YCbCr_422_888:
-        case HAL_PIXEL_FORMAT_YCbCr_444_888:
-        case HAL_PIXEL_FORMAT_FLEX_RGB_888:
-        case HAL_PIXEL_FORMAT_FLEX_RGBA_8888:
+        //case HAL_PIXEL_FORMAT_YCbCr_422_888:
+        //case HAL_PIXEL_FORMAT_YCbCr_444_888:
+        //case HAL_PIXEL_FORMAT_FLEX_RGB_888:
+        //case HAL_PIXEL_FORMAT_FLEX_RGBA_8888:
         case HAL_PIXEL_FORMAT_YCbCr_422_SP:
         case HAL_PIXEL_FORMAT_YCrCb_420_SP:
         case HAL_PIXEL_FORMAT_YCbCr_422_I:
@@ -954,7 +983,8 @@ binder::Status CameraDeviceClient::createDefaultRequest(int templateId,
 
     Mutex::Autolock icl(mBinderSerializationLock);
 
-    if (!mDevice.get()) {
+    //if (!mDevice.get()) {
+    if (mDevice.get() == nullptr) { //T.Tateishi 20221127
         return STATUS_ERROR(CameraService::ERROR_DISCONNECTED, "Camera device no longer alive");
     }
 
@@ -991,6 +1021,7 @@ binder::Status CameraDeviceClient::getCameraInfo(
     Mutex::Autolock icl(mBinderSerializationLock);
 
     if (!mDevice.get()) {
+        ALOGE("%s-mDevice.get() failed.", __FUNCTION__);
         return STATUS_ERROR(CameraService::ERROR_DISCONNECTED, "Camera device no longer alive");
     }
 
@@ -1013,6 +1044,7 @@ binder::Status CameraDeviceClient::waitUntilIdle()
     Mutex::Autolock icl(mBinderSerializationLock);
 
     if (!mDevice.get()) {
+        ALOGE("%s-mDevice.get() failed.", __FUNCTION__);
         return STATUS_ERROR(CameraService::ERROR_DISCONNECTED, "Camera device no longer alive");
     }
 
@@ -1047,6 +1079,7 @@ binder::Status CameraDeviceClient::flush(
     Mutex::Autolock icl(mBinderSerializationLock);
 
     if (!mDevice.get()) {
+        ALOGE("%s-mDevice.get() failed.", __FUNCTION__);
         return STATUS_ERROR(CameraService::ERROR_DISCONNECTED, "Camera device no longer alive");
     }
 
@@ -1191,10 +1224,14 @@ binder::Status CameraDeviceClient::tearDown(int streamId) {
 
 binder::Status CameraDeviceClient::finalizeOutputConfigurations(int32_t streamId,
         const hardware::camera2::params::OutputConfiguration &outputConfiguration) {
+    ALOGV("%s: ### DEBUG ### streamId:%d", __FUNCTION__, streamId);
     ATRACE_CALL();
 
     binder::Status res;
-    if (!(res = checkPidStatus(__FUNCTION__)).isOk()) return res;
+    if (!(res = checkPidStatus(__FUNCTION__)).isOk()){
+        ALOGV("%s: ### DEBUG ### checkPidStatus().isOk() res:%s", __FUNCTION__, res.toString8().c_str());
+        return res;
+    } 
 
     Mutex::Autolock icl(mBinderSerializationLock);
 
@@ -1213,12 +1250,14 @@ binder::Status CameraDeviceClient::finalizeOutputConfigurations(int32_t streamId
     for (size_t i = 0; i < mStreamMap.size(); i++) {
         if (mStreamMap.valueAt(i).streamId() == streamId) {
             streamIdConfigured = true;
+            ALOGV("%s: ### DEBUG ### streamIdConfigured:%d", __FUNCTION__, streamIdConfigured);
             break;
         }
     }
     for (size_t i = 0; i < mDeferredStreams.size(); i++) {
         if (streamId == mDeferredStreams[i]) {
             deferredStreamIndex = i;
+            ALOGV("%s: ### DEBUG ### streamIdConfigured:%d", __FUNCTION__, (int)deferredStreamIndex);
             break;
         }
 
@@ -1238,6 +1277,7 @@ binder::Status CameraDeviceClient::finalizeOutputConfigurations(int32_t streamId
     }
 
     if (!mDevice.get()) {
+        ALOGE("%s-mDevice.get() failed.", __FUNCTION__);
         return STATUS_ERROR(CameraService::ERROR_DISCONNECTED, "Camera device no longer alive");
     }
 
@@ -1276,15 +1316,18 @@ binder::Status CameraDeviceClient::finalizeOutputConfigurations(int32_t streamId
     // Finish the deferred stream configuration with the surface.
     status_t err;
     err = mDevice->setConsumerSurfaces(streamId, consumerSurfaces);
+    ALOGE("%s: ### DEBUG ### mDevice->setConsumerSurfaces(streamId:%d, consumerSurfaces:%zu) res:%s", 
+    __FUNCTION__, streamId, consumerSurfaces.size(), res.toString8().c_str());
     if (err == OK) {
         for (size_t i = 0; i < consumerSurfaces.size(); i++) {
             sp<IBinder> binder = IInterface::asBinder(
                     consumerSurfaces[i]->getIGraphicBufferProducer());
-            ALOGV("%s: mStreamMap add binder %p streamId %d, surfaceId %zu", __FUNCTION__,
-                    binder.get(), streamId, consumerSurfaceIds[i]);
+            ALOGV("%s: ### DEBUG ### mStreamMap add binder %p streamId %d, consumerSurfaceIds[%zu]:%d ", __FUNCTION__,
+                    binder.get(), streamId, i, (int)consumerSurfaceIds[i]);
             mStreamMap.add(binder, StreamSurfaceId(streamId, consumerSurfaceIds[i]));
         }
         if (deferredStreamIndex != NAME_NOT_FOUND) {
+            ALOGV("%s: ### DEBUG ### mDeferredStreams removeItemsAt deferredStreamIndex:%d", __FUNCTION__, streamId);
             mDeferredStreams.removeItemsAt(deferredStreamIndex);
         }
         mStreamInfoMap[streamId].finalized = true;
@@ -1298,14 +1341,17 @@ binder::Status CameraDeviceClient::finalizeOutputConfigurations(int32_t streamId
                 mCameraIdStr.string(), strerror(-err), err);
     }
 
+    ALOGV("%s: ### DEBUG ### return res:%s", __FUNCTION__, res.toString8().c_str());
     return res;
 }
 
 status_t CameraDeviceClient::dump(int fd, const Vector<String16>& args) {
+    ALOGV("%s: ### DEBUG ### fd:%d", __FUNCTION__, fd);
     return BasicClient::dump(fd, args);
 }
 
 status_t CameraDeviceClient::dumpClient(int fd, const Vector<String16>& args) {
+    ALOGV("%s: ### DEBUG ### fd:%d", __FUNCTION__, fd);
     dprintf(fd, "  CameraDeviceClient[%s] (%p) dump:\n",
             mCameraIdStr.string(),
             (getRemoteCallback() != NULL ?
@@ -1342,18 +1388,22 @@ status_t CameraDeviceClient::dumpClient(int fd, const Vector<String16>& args) {
 
 void CameraDeviceClient::notifyError(int32_t errorCode,
                                      const CaptureResultExtras& resultExtras) {
+    ALOGV("%s: ### DEBUG ###", __FUNCTION__);
     // Thread safe. Don't bother locking.
     sp<hardware::camera2::ICameraDeviceCallbacks> remoteCb = getRemoteCallback();
 
     if (remoteCb != 0) {
+        ALOGV("%s: ### DEBUG ### calling remoteCb->onDeviceError()...", __FUNCTION__);
         remoteCb->onDeviceError(errorCode, resultExtras);
     }
 }
 
 void CameraDeviceClient::notifyRepeatingRequestError(long lastFrameNumber) {
+    ALOGV("%s: ### DEBUG ###", __FUNCTION__);
     sp<hardware::camera2::ICameraDeviceCallbacks> remoteCb = getRemoteCallback();
 
     if (remoteCb != 0) {
+        ALOGV("%s: ### DEBUG ### calling remoteCb->onRepeatingRequestError()...", __FUNCTION__);
         remoteCb->onRepeatingRequestError(lastFrameNumber, mStreamingRequestId);
     }
 
@@ -1362,10 +1412,12 @@ void CameraDeviceClient::notifyRepeatingRequestError(long lastFrameNumber) {
 }
 
 void CameraDeviceClient::notifyIdle() {
+    ALOGV("%s: ### DEBUG ###", __FUNCTION__);
     // Thread safe. Don't bother locking.
     sp<hardware::camera2::ICameraDeviceCallbacks> remoteCb = getRemoteCallback();
 
     if (remoteCb != 0) {
+        ALOGV("%s: ### DEBUG ### calling remoteCb->onDeviceIdle()...", __FUNCTION__);
         remoteCb->onDeviceIdle();
     }
     Camera2ClientBase::notifyIdle();
@@ -1373,32 +1425,42 @@ void CameraDeviceClient::notifyIdle() {
 
 void CameraDeviceClient::notifyShutter(const CaptureResultExtras& resultExtras,
         nsecs_t timestamp) {
+    ALOGV("%s: ### DEBUG ###", __FUNCTION__);
     // Thread safe. Don't bother locking.
     sp<hardware::camera2::ICameraDeviceCallbacks> remoteCb = getRemoteCallback();
     if (remoteCb != 0) {
+        ALOGV("%s: ### DEBUG ### calling remoteCb->onCaptureStarted()...", __FUNCTION__);
         remoteCb->onCaptureStarted(resultExtras, timestamp);
     }
     Camera2ClientBase::notifyShutter(resultExtras, timestamp);
 }
 
 void CameraDeviceClient::notifyPrepared(int streamId) {
+    ALOGV("%s: ### DEBUG ### streamId:%d", __FUNCTION__, streamId);
     // Thread safe. Don't bother locking.
     sp<hardware::camera2::ICameraDeviceCallbacks> remoteCb = getRemoteCallback();
     if (remoteCb != 0) {
+        ALOGV("%s: ### DEBUG ### calling remoteCb->onPrepared()...", __FUNCTION__);
         remoteCb->onPrepared(streamId);
     }
 }
 
 void CameraDeviceClient::notifyRequestQueueEmpty() {
+    ALOGV("%s: ### DEBUG ###", __FUNCTION__);
     // Thread safe. Don't bother locking.
     sp<hardware::camera2::ICameraDeviceCallbacks> remoteCb = getRemoteCallback();
     if (remoteCb != 0) {
+        ALOGV("%s: ### DEBUG ### calling remoteCb->onRequestQueueEmpty()...", __FUNCTION__);
         remoteCb->onRequestQueueEmpty();
     }
 }
 
 void CameraDeviceClient::detachDevice() {
-    if (mDevice == 0) return;
+    ALOGV("%s: ### DEBUG ###", __FUNCTION__);
+    if (mDevice == 0) {
+        ALOGV("%s: ### DEBUG ### return bcoz mDevice is null", __FUNCTION__);
+        return;
+    }
 
     ALOGV("Camera %s: Stopping processors", mCameraIdStr.string());
 
@@ -1427,7 +1489,7 @@ void CameraDeviceClient::detachDevice() {
 /** Device-related methods */
 void CameraDeviceClient::onResultAvailable(const CaptureResult& result) {
     ATRACE_CALL();
-    ALOGV("%s", __FUNCTION__);
+    ALOGI("%s", __FUNCTION__);
 
     // Thread-safe. No lock necessary.
     sp<hardware::camera2::ICameraDeviceCallbacks> remoteCb = mRemoteCallback;
@@ -1437,19 +1499,31 @@ void CameraDeviceClient::onResultAvailable(const CaptureResult& result) {
 }
 
 binder::Status CameraDeviceClient::checkPidStatus(const char* checkLocation) {
+    ALOGI("%s: ### DEBUG ### checkPidStatus mDisconnected:%d", __FUNCTION__, mDisconnected);
     if (mDisconnected) {
+        #if 0   //skip T.Tateishi 20221121
         return STATUS_ERROR(CameraService::ERROR_DISCONNECTED,
                 "The camera device has been disconnected");
+        #else
+        ALOGI("%s: ### DEBUG ### checkPidStatus ignore even though mDisconnected is true.", __FUNCTION__);
+        #endif
     }
     status_t res = checkPid(checkLocation);
+    #if 0
     return (res == OK) ? binder::Status::ok() :
             STATUS_ERROR(CameraService::ERROR_PERMISSION_DENIED,
                     "Attempt to use camera from a different process than original client");
+    #else
+    if(res != OK){
+        ALOGI("%s: ### DEBUG ### Attempt to use camera from a different process than original client. However, ignore it.", __FUNCTION__);
+    }
+    return binder::Status::ok();
+    #endif
 }
 
 // TODO: move to Camera2ClientBase
 bool CameraDeviceClient::enforceRequestPermissions(CameraMetadata& metadata) {
-
+    ALOGV("%s: ### DEBUG ###", __FUNCTION__);
     const int pid = IPCThreadState::self()->getCallingPid();
     const int selfPid = getpid();
     camera_metadata_entry_t entry;
@@ -1476,7 +1550,9 @@ bool CameraDeviceClient::enforceRequestPermissions(CameraMetadata& metadata) {
     }
 
     // We can do anything!
+    ALOGV("%s: ### DEBUG ### pid:%d selfPid:%d", __FUNCTION__, pid, selfPid);
     if (pid == selfPid) {
+        ALOGV("%s: ### DEBUG ### return bcoz pid == selfPid", __FUNCTION__);
         return true;
     }
 
@@ -1485,6 +1561,7 @@ bool CameraDeviceClient::enforceRequestPermissions(CameraMetadata& metadata) {
      * - android.led.transmit = android.permission.CAMERA_DISABLE_TRANSMIT
      */
     entry = metadata.find(ANDROID_LED_TRANSMIT);
+    ALOGV("%s: ### DEBUG ### entry.count:%d", __FUNCTION__, (int)entry.count);
     if (entry.count > 0 && entry.data.u8[0] != ANDROID_LED_TRANSMIT_ON) {
         String16 permissionString =
             String16("android.permission.CAMERA_DISABLE_TRANSMIT_LED");
@@ -1496,6 +1573,7 @@ bool CameraDeviceClient::enforceRequestPermissions(CameraMetadata& metadata) {
         }
     }
 
+    ALOGV("%s: ### DEBUG ### return true", __FUNCTION__);
     return true;
 }
 

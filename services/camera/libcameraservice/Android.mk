@@ -24,6 +24,7 @@ include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES :=  \
     CameraService.cpp \
+    CameraDeviceFactory.cpp \
     CameraFlashlight.cpp \
     common/Camera2ClientBase.cpp \
     common/CameraDeviceBase.cpp \

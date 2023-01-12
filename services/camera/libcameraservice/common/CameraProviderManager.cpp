@@ -35,6 +35,7 @@ namespace {
 // Hardcoded name for the passthrough HAL implementation, since it can't be discovered via the
 // service manager
 const std::string kLegacyProviderName("legacy/0");
+const std::string kExternalProviderName("external/0");  //Added T.Tateishi 20221119
 
 // Slash-separated list of provider types to consider for use via the old camera API
 const std::string kStandardProviderTypes("internal/legacy");
@@ -50,6 +51,7 @@ CameraProviderManager::~CameraProviderManager() {
 status_t CameraProviderManager::initialize(wp<CameraProviderManager::StatusListener> listener,
         ServiceInteractionProxy* proxy) {
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     if (proxy == nullptr) {
         ALOGE("%s: No valid service interaction proxy provided", __FUNCTION__);
         return BAD_VALUE;
@@ -69,20 +71,24 @@ status_t CameraProviderManager::initialize(wp<CameraProviderManager::StatusListe
 
     // See if there's a passthrough HAL, but let's not complain if there's not
     addProviderLocked(kLegacyProviderName, /*expected*/ false);
+    addProviderLocked(kExternalProviderName, /*expected*/ false);   //Added T.Tateishi 20221119
 
     return OK;
 }
 
 int CameraProviderManager::getCameraCount() const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
     int count = 0;
     for (auto& provider : mProviders) {
         count += provider->mUniqueDeviceCount;
     }
+    ALOGI("%s: ### DEBUG ### return count:%d", __FUNCTION__, count);
     return count;
 }
 
 int CameraProviderManager::getAPI1CompatibleCameraCount() const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
     int count = 0;
     for (auto& provider : mProviders) {
@@ -90,50 +96,67 @@ int CameraProviderManager::getAPI1CompatibleCameraCount() const {
             count += provider->mUniqueAPI1CompatibleCameraIds.size();
         }
     }
+    ALOGI("%s: ### DEBUG ### return count:%d", __FUNCTION__, count);
     return count;
 }
 
 std::vector<std::string> CameraProviderManager::getCameraDeviceIds() const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
     std::vector<std::string> deviceIds;
     for (auto& provider : mProviders) {
+        ALOGI("%s: ### DEBUG ### provider:%s", __FUNCTION__, provider->descriptor);
         for (auto& id : provider->mUniqueCameraIds) {
+            ALOGI("%s: ### DEBUG ### provider:%s id:%s", __FUNCTION__, provider->descriptor, id.c_str());
             deviceIds.push_back(id);
         }
     }
+    ALOGI("%s: ### DEBUG ### return deviceIds.size():%u", __FUNCTION__, (unsigned int)deviceIds.size());
     return deviceIds;
 }
 
 std::vector<std::string> CameraProviderManager::getAPI1CompatibleCameraDeviceIds() const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
     std::vector<std::string> deviceIds;
     for (auto& provider : mProviders) {
+        ALOGI("%s: ### DEBUG ### provider:%s", __FUNCTION__, provider->descriptor);
         if (kStandardProviderTypes.find(provider->getType()) != std::string::npos) {
             for (auto& id : provider->mUniqueAPI1CompatibleCameraIds) {
+                ALOGI("%s: ### DEBUG ### provider:%s id:%s", __FUNCTION__, provider->descriptor, id.c_str());
                 deviceIds.push_back(id);
             }
         }
     }
+    ALOGI("%s: ### DEBUG ### return deviceIds.size():%u", __FUNCTION__, (unsigned int)deviceIds.size());
     return deviceIds;
 }
 
 bool CameraProviderManager::isValidDevice(const std::string &id, uint16_t majorVersion) const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
     return isValidDeviceLocked(id, majorVersion);
 }
 
 bool CameraProviderManager::isValidDeviceLocked(const std::string &id, uint16_t majorVersion) const {
+    ALOGI("%s: ### DEBUG ### id:%s majorVersion:%u", __FUNCTION__, id.c_str(), majorVersion);
     for (auto& provider : mProviders) {
+        ALOGI("%s: ### DEBUG ### provider->descriptor:%s", __FUNCTION__, provider->descriptor);
         for (auto& deviceInfo : provider->mDevices) {
+            ALOGI("%s: ### DEBUG ### deviceInfo->mId:%s deviceInfo->mVersion.get_major() :%u", 
+                __FUNCTION__, deviceInfo->mId.c_str(), deviceInfo->mVersion.get_major());
             if (deviceInfo->mId == id && deviceInfo->mVersion.get_major() == majorVersion) {
+                ALOGI("%s: ### DEBUG ### return true", __FUNCTION__);
                 return true;
             }
         }
     }
+    ALOGI("%s: ### DEBUG ### return false", __FUNCTION__);
     return false;
 }
 
 bool CameraProviderManager::hasFlashUnit(const std::string &id) const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
 
     auto deviceInfo = findDeviceInfoLocked(id);
@@ -144,6 +167,7 @@ bool CameraProviderManager::hasFlashUnit(const std::string &id) const {
 
 status_t CameraProviderManager::getResourceCost(const std::string &id,
         CameraResourceCost* cost) const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
 
     auto deviceInfo = findDeviceInfoLocked(id);
@@ -155,6 +179,7 @@ status_t CameraProviderManager::getResourceCost(const std::string &id,
 
 status_t CameraProviderManager::getCameraInfo(const std::string &id,
         hardware::CameraInfo* info) const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
 
     auto deviceInfo = findDeviceInfoLocked(id);
@@ -165,6 +190,7 @@ status_t CameraProviderManager::getCameraInfo(const std::string &id,
 
 status_t CameraProviderManager::getCameraCharacteristics(const std::string &id,
         CameraMetadata* characteristics) const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
 
     auto deviceInfo = findDeviceInfoLocked(id, /*minVersion*/ {3,0}, /*maxVersion*/ {4,0});
@@ -175,6 +201,7 @@ status_t CameraProviderManager::getCameraCharacteristics(const std::string &id,
 
 status_t CameraProviderManager::getHighestSupportedVersion(const std::string &id,
         hardware::hidl_version *v) {
+    ALOGI("%s: ### DEBUG ### id:%s", __FUNCTION__, id.c_str());
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
 
     hardware::hidl_version maxVersion{0,0};
@@ -184,12 +211,14 @@ status_t CameraProviderManager::getHighestSupportedVersion(const std::string &id
             if (deviceInfo->mId == id) {
                 if (deviceInfo->mVersion > maxVersion) {
                     maxVersion = deviceInfo->mVersion;
+                    ALOGI("%s: ### DEBUG ### maxVersion %u %u", __FUNCTION__, maxVersion.get_major(), maxVersion.get_minor());
                     found = true;
                 }
             }
         }
     }
     if (!found) {
+        ALOGI("%s: ### DEBUG ### NAME_NOT_FOUND", __FUNCTION__);
         return NAME_NOT_FOUND;
     }
     *v = maxVersion;
@@ -197,6 +226,7 @@ status_t CameraProviderManager::getHighestSupportedVersion(const std::string &id
 }
 
 bool CameraProviderManager::supportSetTorchMode(const std::string &id) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
     bool support = false;
     for (auto& provider : mProviders) {
@@ -219,6 +249,7 @@ bool CameraProviderManager::supportSetTorchMode(const std::string &id) {
 }
 
 status_t CameraProviderManager::setTorchMode(const std::string &id, bool enabled) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
 
     auto deviceInfo = findDeviceInfoLocked(id);
@@ -228,6 +259,7 @@ status_t CameraProviderManager::setTorchMode(const std::string &id, bool enabled
 }
 
 status_t CameraProviderManager::setUpVendorTags() {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     sp<VendorTagDescriptorCache> tagCache = new VendorTagDescriptorCache();
 
     for (auto& provider : mProviders) {
@@ -273,7 +305,7 @@ status_t CameraProviderManager::openSession(const std::string &id,
         const sp<hardware::camera::device::V3_2::ICameraDeviceCallback>& callback,
         /*out*/
         sp<hardware::camera::device::V3_2::ICameraDeviceSession> *session) {
-
+    ALOGI("%s: ### DEBUG ### id: %s", __FUNCTION__, id.c_str());
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
 
     auto deviceInfo = findDeviceInfoLocked(id,
@@ -303,7 +335,7 @@ status_t CameraProviderManager::openSession(const std::string &id,
         const sp<hardware::camera::device::V1_0::ICameraDeviceCallback>& callback,
         /*out*/
         sp<hardware::camera::device::V1_0::ICameraDevice> *session) {
-
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
 
     auto deviceInfo = findDeviceInfoLocked(id,
@@ -329,6 +361,7 @@ hardware::Return<void> CameraProviderManager::onRegistration(
         const hardware::hidl_string& /*fqName*/,
         const hardware::hidl_string& name,
         bool /*preexisting*/) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     {
         std::lock_guard<std::mutex> lock(mInterfaceMutex);
 
@@ -344,6 +377,7 @@ hardware::Return<void> CameraProviderManager::onRegistration(
 }
 
 status_t CameraProviderManager::dump(int fd, const Vector<String16>& args) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
 
     for (auto& provider : mProviders) {
@@ -355,6 +389,7 @@ status_t CameraProviderManager::dump(int fd, const Vector<String16>& args) {
 CameraProviderManager::ProviderInfo::DeviceInfo* CameraProviderManager::findDeviceInfoLocked(
         const std::string& id,
         hardware::hidl_version minVersion, hardware::hidl_version maxVersion) const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     for (auto& provider : mProviders) {
         for (auto& deviceInfo : provider->mDevices) {
             if (deviceInfo->mId == id &&
@@ -369,6 +404,7 @@ CameraProviderManager::ProviderInfo::DeviceInfo* CameraProviderManager::findDevi
 metadata_vendor_id_t CameraProviderManager::getProviderTagIdLocked(
         const std::string& id, hardware::hidl_version minVersion,
         hardware::hidl_version maxVersion) const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     metadata_vendor_id_t ret = CAMERA_METADATA_INVALID_VENDOR_ID;
 
     std::lock_guard<std::mutex> lock(mInterfaceMutex);
@@ -386,7 +422,9 @@ metadata_vendor_id_t CameraProviderManager::getProviderTagIdLocked(
 }
 
 status_t CameraProviderManager::addProviderLocked(const std::string& newProvider, bool expected) {
+    ALOGI("%s: ### DEBUG ### newProvider:%s expected:%d", __FUNCTION__, newProvider.c_str(), expected);
     for (const auto& providerInfo : mProviders) {
+        ALOGI("%s: ### DEBUG ### providerInfo %s", __FUNCTION__, providerInfo->mProviderName.c_str());
         if (providerInfo->mProviderName == newProvider) {
             ALOGW("%s: Camera provider HAL with name '%s' already registered", __FUNCTION__,
                     newProvider.c_str());
@@ -420,6 +458,7 @@ status_t CameraProviderManager::addProviderLocked(const std::string& newProvider
 }
 
 status_t CameraProviderManager::removeProvider(const std::string& provider) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     std::unique_lock<std::mutex> lock(mInterfaceMutex);
     std::vector<String8> removedDeviceIds;
     status_t res = NAME_NOT_FOUND;
@@ -452,6 +491,7 @@ status_t CameraProviderManager::removeProvider(const std::string& provider) {
 }
 
 sp<CameraProviderManager::StatusListener> CameraProviderManager::getStatusListener() const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     return mListener.promote();
 }
 
@@ -467,10 +507,12 @@ CameraProviderManager::ProviderInfo::ProviderInfo(
         mProviderTagid(generateVendorTagId(providerName)),
         mUniqueDeviceCount(0),
         mManager(manager) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     (void) mManager;
 }
 
 status_t CameraProviderManager::ProviderInfo::initialize() {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     status_t res = parseProviderName(mProviderName, &mType, &mId);
     if (res != OK) {
         ALOGE("%s: Invalid provider name, ignoring", __FUNCTION__);
@@ -549,12 +591,13 @@ status_t CameraProviderManager::ProviderInfo::initialize() {
 }
 
 const std::string& CameraProviderManager::ProviderInfo::getType() const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     return mType;
 }
 
 status_t CameraProviderManager::ProviderInfo::addDevice(const std::string& name,
         CameraDeviceStatus initialStatus, /*out*/ std::string* parsedId) {
-
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     ALOGI("Enumerating new camera device: %s", name.c_str());
 
     uint16_t major, minor;
@@ -562,8 +605,11 @@ status_t CameraProviderManager::ProviderInfo::addDevice(const std::string& name,
 
     status_t res = parseDeviceName(name, &major, &minor, &type, &id);
     if (res != OK) {
+        ALOGI("%s: ### DEBUG ### parseDeviceName failed res:%d", __FUNCTION__, res);
         return res;
     }
+    ALOGI("%s: ### DEBUG ### parseDeviceName major:%u minor:%u type:%s id:%s", 
+        __FUNCTION__, major, minor, type.c_str(), id.c_str());
     if (type != mType) {
         ALOGE("%s: Device type %s does not match provider type %s", __FUNCTION__,
                 type.c_str(), mType.c_str());
@@ -590,7 +636,11 @@ status_t CameraProviderManager::ProviderInfo::addDevice(const std::string& name,
                     name.c_str(), major);
             return BAD_VALUE;
     }
-    if (deviceInfo == nullptr) return BAD_VALUE;
+    if (deviceInfo == nullptr) {
+        ALOGE("%s: deviceInfo is nullptr", __FUNCTION__);
+        return BAD_VALUE;
+    }
+
     deviceInfo->mStatus = initialStatus;
 
     mDevices.push_back(std::move(deviceInfo));
@@ -602,6 +652,7 @@ status_t CameraProviderManager::ProviderInfo::addDevice(const std::string& name,
 }
 
 status_t CameraProviderManager::ProviderInfo::dump(int fd, const Vector<String16>&) const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     dprintf(fd, "== Camera Provider HAL %s (v2.4, %s) static info: %zu devices: ==\n",
             mProviderName.c_str(), mInterface->isRemote() ? "remote" : "passthrough",
             mDevices.size());
@@ -650,6 +701,7 @@ status_t CameraProviderManager::ProviderInfo::dump(int fd, const Vector<String16
 hardware::Return<void> CameraProviderManager::ProviderInfo::cameraDeviceStatusChange(
         const hardware::hidl_string& cameraDeviceName,
         CameraDeviceStatus newStatus) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     sp<StatusListener> listener;
     std::string id;
     {
@@ -674,6 +726,21 @@ hardware::Return<void> CameraProviderManager::ProviderInfo::cameraDeviceStatusCh
                 return hardware::Void();
             }
             addDevice(cameraDeviceName, newStatus, &id);
+
+            //Add T.tateishi 20221119 update number of camera -->
+            mUniqueCameraIds.clear();
+            mUniqueAPI1CompatibleCameraIds.clear();
+            for (auto& device : mDevices) {
+                mUniqueCameraIds.insert(device->mId);
+                if (device->isAPI1Compatible()) {
+                    mUniqueAPI1CompatibleCameraIds.insert(device->mId);
+                }
+            }
+            mUniqueDeviceCount = mUniqueCameraIds.size();
+            ALOGI("Camera provider %s ready with %zu camera devices",
+                    mProviderName.c_str(), mDevices.size());
+            //<-- Add by T.tateishi 20221119
+
         }
         listener = mManager->getStatusListener();
     }
@@ -687,6 +754,7 @@ hardware::Return<void> CameraProviderManager::ProviderInfo::cameraDeviceStatusCh
 hardware::Return<void> CameraProviderManager::ProviderInfo::torchModeStatusChange(
         const hardware::hidl_string& cameraDeviceName,
         TorchModeStatus newStatus) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     sp<StatusListener> listener;
     std::string id;
     {
@@ -717,6 +785,7 @@ hardware::Return<void> CameraProviderManager::ProviderInfo::torchModeStatusChang
 
 void CameraProviderManager::ProviderInfo::serviceDied(uint64_t cookie,
         const wp<hidl::base::V1_0::IBase>& who) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     (void) who;
     ALOGI("Camera provider '%s' has died; removing it", mProviderName.c_str());
     if (cookie != mId) {
@@ -731,11 +800,15 @@ std::unique_ptr<CameraProviderManager::ProviderInfo::DeviceInfo>
     CameraProviderManager::ProviderInfo::initializeDeviceInfo(
         const std::string &name, const metadata_vendor_id_t tagId,
         const std::string &id, uint16_t minorVersion) const {
+    ALOGI("%s: ### DEBUG ### name:%s id:%s", __FUNCTION__, name.c_str(), id.c_str());
     Status status;
 
     auto cameraInterface =
             getDeviceInterface<typename DeviceInfoT::InterfaceT>(name);
-    if (cameraInterface == nullptr) return nullptr;
+    if (cameraInterface == nullptr){
+        ALOGE("%s: ### DEBUG ### cameraInterface is nullptr", __FUNCTION__);
+        return nullptr;
+    } 
 
     CameraResourceCost resourceCost;
     cameraInterface->getResourceCost([&status, &resourceCost](
@@ -765,6 +838,7 @@ template<>
 sp<device::V1_0::ICameraDevice>
 CameraProviderManager::ProviderInfo::getDeviceInterface
         <device::V1_0::ICameraDevice>(const std::string &name) const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     Status status;
     sp<device::V1_0::ICameraDevice> cameraInterface;
     hardware::Return<void> ret;
@@ -790,6 +864,7 @@ template<>
 sp<device::V3_2::ICameraDevice>
 CameraProviderManager::ProviderInfo::getDeviceInterface
         <device::V3_2::ICameraDevice>(const std::string &name) const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     Status status;
     sp<device::V3_2::ICameraDevice> cameraInterface;
     hardware::Return<void> ret;
@@ -816,6 +891,7 @@ CameraProviderManager::ProviderInfo::DeviceInfo::~DeviceInfo() {}
 template<class InterfaceT>
 status_t CameraProviderManager::ProviderInfo::DeviceInfo::setTorchMode(InterfaceT& interface,
         bool enabled) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     Status s = interface->setTorchMode(enabled ? TorchMode::ON : TorchMode::OFF);
     return mapToStatusT(s);
 }
@@ -828,6 +904,7 @@ CameraProviderManager::ProviderInfo::DeviceInfo1::DeviceInfo1(const std::string&
         DeviceInfo(name, tagId, id, hardware::hidl_version{1, minorVersion},
                    resourceCost),
         mInterface(interface) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     // Get default parameters and initialize flash unit availability
     // Requires powering on the camera device
     hardware::Return<Status> status = mInterface->open(nullptr);
@@ -866,11 +943,13 @@ CameraProviderManager::ProviderInfo::DeviceInfo1::DeviceInfo1(const std::string&
 CameraProviderManager::ProviderInfo::DeviceInfo1::~DeviceInfo1() {}
 
 status_t CameraProviderManager::ProviderInfo::DeviceInfo1::setTorchMode(bool enabled) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     return DeviceInfo::setTorchMode(mInterface, enabled);
 }
 
 status_t CameraProviderManager::ProviderInfo::DeviceInfo1::getCameraInfo(
         hardware::CameraInfo *info) const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     if (info == nullptr) return BAD_VALUE;
 
     Status status;
@@ -916,17 +995,21 @@ CameraProviderManager::ProviderInfo::DeviceInfo3::DeviceInfo3(const std::string&
         DeviceInfo(name, tagId, id, hardware::hidl_version{3, minorVersion},
                    resourceCost),
         mInterface(interface) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     // Get camera characteristics and initialize flash unit availability
     Status status;
     hardware::Return<void> ret;
     ret = mInterface->getCameraCharacteristics([&status, this](Status s,
                     device::V3_2::CameraMetadata metadata) {
                 status = s;
+                ALOGI("%s: ### DEBUG ### getCameraCharacteristics status:%u", __FUNCTION__, status);
                 if (s == Status::OK) {
                     camera_metadata_t *buffer =
                             reinterpret_cast<camera_metadata_t*>(metadata.data());
                     size_t expectedSize = metadata.size();
+                    ALOGI("%s: ### DEBUG ### getCameraCharacteristics expectedSize:%u", __FUNCTION__, (unsigned int)expectedSize);
                     int res = validate_camera_metadata_structure(buffer, &expectedSize);
+                    ALOGI("%s: ### DEBUG ### validate_camera_metadata_structure res :%d", __FUNCTION__, res);
                     if (res == OK || res == CAMERA_METADATA_VALIDATION_SHIFTED) {
                         set_camera_metadata_vendor_id(buffer, mProviderTagid);
                         mCameraCharacteristics = buffer;
@@ -960,11 +1043,13 @@ CameraProviderManager::ProviderInfo::DeviceInfo3::DeviceInfo3(const std::string&
 CameraProviderManager::ProviderInfo::DeviceInfo3::~DeviceInfo3() {}
 
 status_t CameraProviderManager::ProviderInfo::DeviceInfo3::setTorchMode(bool enabled) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     return DeviceInfo::setTorchMode(mInterface, enabled);
 }
 
 status_t CameraProviderManager::ProviderInfo::DeviceInfo3::getCameraInfo(
         hardware::CameraInfo *info) const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     if (info == nullptr) return BAD_VALUE;
 
     camera_metadata_ro_entry facing =
@@ -997,6 +1082,7 @@ status_t CameraProviderManager::ProviderInfo::DeviceInfo3::getCameraInfo(
     return OK;
 }
 bool CameraProviderManager::ProviderInfo::DeviceInfo3::isAPI1Compatible() const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     bool isBackwardCompatible = false;
     camera_metadata_ro_entry_t caps = mCameraCharacteristics.find(
             ANDROID_REQUEST_AVAILABLE_CAPABILITIES);
@@ -1013,6 +1099,7 @@ bool CameraProviderManager::ProviderInfo::DeviceInfo3::isAPI1Compatible() const 
 
 status_t CameraProviderManager::ProviderInfo::DeviceInfo3::getCameraCharacteristics(
         CameraMetadata *characteristics) const {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     if (characteristics == nullptr) return BAD_VALUE;
 
     *characteristics = mCameraCharacteristics;
@@ -1021,6 +1108,7 @@ status_t CameraProviderManager::ProviderInfo::DeviceInfo3::getCameraCharacterist
 
 status_t CameraProviderManager::ProviderInfo::parseProviderName(const std::string& name,
         std::string *type, uint32_t *id) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     // Format must be "<type>/<id>"
 #define ERROR_MSG_PREFIX "%s: Invalid provider name '%s'. "       \
     "Should match '<type>/<id>' - "
@@ -1069,6 +1157,7 @@ status_t CameraProviderManager::ProviderInfo::parseProviderName(const std::strin
 
 metadata_vendor_id_t CameraProviderManager::ProviderInfo::generateVendorTagId(
         const std::string &name) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     metadata_vendor_id_t ret = std::hash<std::string> {} (name);
     // CAMERA_METADATA_INVALID_VENDOR_ID is not a valid hash value
     if (CAMERA_METADATA_INVALID_VENDOR_ID == ret) {
@@ -1080,6 +1169,7 @@ metadata_vendor_id_t CameraProviderManager::ProviderInfo::generateVendorTagId(
 
 status_t CameraProviderManager::ProviderInfo::parseDeviceName(const std::string& name,
         uint16_t *major, uint16_t *minor, std::string *type, std::string *id) {
+    ALOGI("%s: ### DEBUG ### name:%s", __FUNCTION__, name.c_str());
 
     // Format must be "device@<major>.<minor>/<type>/<id>"
 
@@ -1176,6 +1266,7 @@ status_t CameraProviderManager::ProviderInfo::parseDeviceName(const std::string&
     *type = typeVal;
     *id = idVal;
 
+    ALOGI("%s: ### DEBUG ### return major:%u minor:%u type:%s id:%s", __FUNCTION__, *major, *minor, type->c_str(), id->c_str());
     return OK;
 }
 
@@ -1188,6 +1279,7 @@ CameraProviderManager::ProviderInfo::~ProviderInfo() {
 }
 
 status_t CameraProviderManager::mapToStatusT(const Status& s)  {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     switch(s) {
         case Status::OK:
             return OK;
@@ -1211,6 +1303,7 @@ status_t CameraProviderManager::mapToStatusT(const Status& s)  {
 }
 
 const char* CameraProviderManager::statusToString(const Status& s) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     switch(s) {
         case Status::OK:
             return "OK";
@@ -1234,6 +1327,7 @@ const char* CameraProviderManager::statusToString(const Status& s) {
 }
 
 const char* CameraProviderManager::deviceStatusToString(const CameraDeviceStatus& s) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     switch(s) {
         case CameraDeviceStatus::NOT_PRESENT:
             return "NOT_PRESENT";
@@ -1247,6 +1341,7 @@ const char* CameraProviderManager::deviceStatusToString(const CameraDeviceStatus
 }
 
 const char* CameraProviderManager::torchStatusToString(const TorchModeStatus& s) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
     switch(s) {
         case TorchModeStatus::NOT_AVAILABLE:
             return "NOT_AVAILABLE";
@@ -1264,6 +1359,7 @@ status_t HidlVendorTagDescriptor::createDescriptorFromHidl(
         const hardware::hidl_vec<hardware::camera::common::V1_0::VendorTagSection>& vts,
         /*out*/
         sp<VendorTagDescriptor>& descriptor) {
+    ALOGI("%s: ### DEBUG ###", __FUNCTION__);
 
     int tagCount = 0;
 

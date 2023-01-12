@@ -226,7 +226,9 @@ void CameraManagerGlobal::getCameraIdList(std::vector<String8> *cameraIds) {
     auto cs = getCameraService();
     Mutex::Autolock _l(mLock);
 
+    ALOGI("%s: mDeviceStatusMap.size():%u", __FUNCTION__, (unsigned int)mDeviceStatusMap.size());
     for(auto& deviceStatus : mDeviceStatusMap) {
+        ALOGI("%s: deviceStatus.first:%s deviceStatus.second:%d", __FUNCTION__, deviceStatus.first.c_str(), deviceStatus.second);
         if (deviceStatus.second == hardware::ICameraServiceListener::STATUS_NOT_PRESENT ||
                 deviceStatus.second == hardware::ICameraServiceListener::STATUS_ENUMERATING) {
             continue;
@@ -234,11 +236,14 @@ void CameraManagerGlobal::getCameraIdList(std::vector<String8> *cameraIds) {
         bool camera2Support = false;
         binder::Status serviceRet = cs->supportsCameraApi(String16(deviceStatus.first),
                 hardware::ICameraService::API_VERSION_2, &camera2Support);
+        ALOGI("%s: serviceRet:%d camera2Support:%d", __FUNCTION__, serviceRet.exceptionCode(), camera2Support);
         if (!serviceRet.isOk() || !camera2Support) {
             continue;
         }
         cameraIds->push_back(deviceStatus.first);
+        ALOGI("%s: cameraIds->size():%u", __FUNCTION__, (unsigned int)cameraIds->size());
     }
+    ALOGI("%s: return cameraIds->size():%u", __FUNCTION__, (unsigned int)cameraIds->size());
 }
 
 bool CameraManagerGlobal::validStatus(int32_t status) {
@@ -313,19 +318,23 @@ void CameraManagerGlobal::onStatusChanged(
 
 void CameraManagerGlobal::onStatusChangedLocked(
         int32_t status, const String8& cameraId) {
+    ALOGI("%s: status:%d cameraId:%s", __FUNCTION__, status, cameraId.c_str());
     if (!validStatus(status)) {
         ALOGE("%s: Invalid status %d", __FUNCTION__, status);
         return;
     }
 
     bool firstStatus = (mDeviceStatusMap.count(cameraId) == 0);
+    ALOGI("%s: firstStatus:%d", __FUNCTION__, firstStatus);
     int32_t oldStatus = firstStatus ?
             status : // first status
             mDeviceStatusMap[cameraId];
+    ALOGI("%s: oldStatus:%d", __FUNCTION__, oldStatus);
 
     if (!firstStatus &&
             isStatusAvailable(status) == isStatusAvailable(oldStatus)) {
         // No status update. No need to send callback
+        ALOGI("%s: No status update. No need to send callback", __FUNCTION__);
         return;
     }
 
